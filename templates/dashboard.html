@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SIEM Miniature Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; }
+        h2 { margin-bottom: 20px; }
+        canvas { margin-bottom: 50px; }
+    </style>
+</head>
+<body>
+    <h2>📊 SIEM Miniature Dashboard</h2>
+
+    <!-- 시간별 이벤트 차트 -->
+    <div style="width:80%;">
+        <canvas id="eventsOverTime"></canvas>
+    </div>
+
+    <!-- IP별 이벤트 차트 -->
+    <div style="width:80%;">
+        <canvas id="eventsByIP"></canvas>
+    </div>
+
+    <!-- 이상탐지 결과 리스트 -->
+    <div style="margin-top:40px;">
+        <h3>🚨 Anomaly Detection Results</h3>
+        <ul id="anomalyList"></ul>
+    </div>
+
+    <script>
+        // Flask에서 전달된 데이터
+        const timestamps = {{ timestamps|tojson }};
+        const eventTypes = {{ event_types|tojson }};
+        const ipAddresses = {{ ip_addresses|tojson }};
+        const anomalies = {{ anomalies|tojson }};
+
+        // 시간대별 이벤트 집계
+        const timeCount = {};
+        timestamps.forEach(ts => {
+            timeCount[ts] = (timeCount[ts] || 0) + 1;
+        });
+
+
+        //  IP별 이벤트 집계
+        const ipCount = {};
+        ipAddresses.forEach(ip => {
+            ipCount[ip] = (ipCount[ip] || 0) + 1;
+        });
+
+ 
+        //  Anomaly 결과 매핑
+
+        const anomalyMap = {};
+        anomalies.forEach(row => {
+            anomalyMap[row.ip] = row.anomaly;
+        });
+
+  
+        // Chart.js: 시간별 이벤트 (Line)
+        new Chart(document.getElementById("eventsOverTime"), {
+            type: "line",
+            data: {
+                labels: Object.keys(timeCount),
+                datasets: [{
+                    label: "Events over time",
+                    data: Object.values(timeCount),
+                    borderColor: "red",
+                    backgroundColor: "rgba(255,0,0,0.2)",
+                    fill: true,
+                    tension: 0.2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { position: "top" } },
+                scales: { x: { title: { display: true, text: "Time" } },
+                          y: { title: { display: true, text: "Event Count" } } }
+            }
+        });
+
+
+        // Chart.js: IP별 이벤트 (Bar)
+        new Chart(document.getElementById("eventsByIP"), {
+            type: "bar",
+            data: {
+                labels: Object.keys(ipCount),
+                datasets: [{
+                    label: "Events per IP",
+                    data: Object.values(ipCount),
+                    backgroundColor: Object.keys(ipCount).map(ip =>
+                        anomalyMap[ip] === -1 ? "red" : "blue"
+                    )
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: { x: { title: { display: true, text: "IP Address" } },
+                          y: { title: { display: true, text: "Event Count" } } }
+            }
+        });
+
+
+        // HTML 목록으로 Anomaly 표시
+        const anomalyList = document.getElementById("anomalyList");
+        anomalies.forEach(row => {
+            const li = document.createElement("li");
+            li.textContent = `IP: ${row.ip}, Fail Count: ${row.fail_count}, Status: ${row.anomaly === -1 ? "⚠️ Suspicious" : "✅ Normal"}`;
+            if (row.anomaly === -1) {
+                li.style.color = "red";
+                li.style.fontWeight = "bold";
+            } else {
+                li.style.color = "blue";
+            }
+            anomalyList.appendChild(li);
+        });
+    </script>
+</body>
+</html>
