@@ -1,7 +1,7 @@
 import requests
 from flask import Flask, request, jsonify, render_template
 from models import db, Log
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 import pandas as pd
@@ -15,15 +15,13 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 app = Flask(__name__)
 
-# -----------------------------------
-# ✅ SQLite DB 설정 (항상 루트 DB 사용)
+# SQLite DB 설정 (항상 루트 DB 사용)
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 db_path = os.path.join(BASE_DIR, "database.db")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
-# -----------------------------------
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -36,7 +34,6 @@ def send_telegram_alert(message):
 with app.app_context():
     db.create_all()
 
-# -----------------------------------
 # 로그 수집 API
 @app.route('/log', methods=['POST'])
 def collect_log():
@@ -50,14 +47,21 @@ def collect_log():
     db.session.add(new_log)
     db.session.commit()
 
-    # 조건: 로그인 실패 5회 이상이면 알림
-    fail_count = Log.query.filter_by(ip=data.get('ip'), event_type="login_failed").count()
+    # ✅ 조건: 최근 10분 동안 같은 IP에서 login_failed 5회 이상이면 알림
+    ten_minutes_ago = (datetime.now() - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+    fail_count = Log.query.filter(
+        Log.ip == data.get('ip'),
+        Log.event_type == "login_failed",
+        Log.timestamp >= ten_minutes_ago
+    ).count()
+
     if fail_count >= 5:
-        send_telegram_alert(f"🚨 다중 로그인 실패 발생! IP: {data.get('ip')}")
+        send_telegram_alert(
+            f"🚨 최근 10분 동안 다중 로그인 실패 발생! IP: {data.get('ip')} (실패 {fail_count}회)"
+        )
 
     return jsonify({"message": "Log stored successfully!"}), 201
 
-# -----------------------------------
 # 로그 확인 API
 @app.route('/logs', methods=['GET'])
 def get_logs():
@@ -70,21 +74,17 @@ def get_logs():
         "status": log.status
     } for log in logs])
 
-# -----------------------------------
 # 대시보드
 @app.route('/dashboard')
 def dashboard():
     logs = Log.query.all()
 
-    # 원본 데이터
-    timestamps = [log.timestamp for log in logs]
-    event_types = [log.event_type for log in logs]
-    ip_addresses = [log.ip for log in logs]
+    timestamps = [log.timestamp for log in logs if log.timestamp]
+    event_types = [log.event_type for log in logs if log.event_type]
+    ip_addresses = [log.ip for log in logs if log.ip]
 
-    # 시간 단위를 "YYYY-MM-DD HH"로 묶어서 집계
     normalized_times = [t[:13] for t in timestamps]
 
-    # 이상탐지 결과
     anomalies = detect_anomalies()
 
     return render_template(
@@ -95,21 +95,18 @@ def dashboard():
         anomalies=anomalies
     )
 
-# -----------------------------------
 # 이상행위 탐지 API
 @app.route('/anomaly')
 def anomaly_api():
     anomalies = detect_anomalies()
     return jsonify(anomalies)
 
-# -----------------------------------
 # 이상탐지 함수
 def detect_anomalies():
     logs = Log.query.all()
     if not logs:
         return []
 
-    # DataFrame 변환
     df = pd.DataFrame([{
         "timestamp": log.timestamp,
         "ip": log.ip,
@@ -117,7 +114,6 @@ def detect_anomalies():
         "status": log.status
     } for log in logs])
 
-    # 시간대(feature): 0=새벽, 1=오전, 2=오후, 3=저녁
     df["hour"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.hour.fillna(0)
     df["time_bin"] = pd.cut(
         df["hour"],
@@ -126,7 +122,6 @@ def detect_anomalies():
         right=False
     ).astype(int)
 
-    # IP별 통계
     feature_df = df.groupby("ip").agg(
         total_events=("event_type", "count"),
         fail_count=("status", lambda x: (x == "failed").sum()),
@@ -135,13 +130,9 @@ def detect_anomalies():
         avg_time_bin=("time_bin", "mean")
     ).reset_index()
 
-    # 성공/실패 비율
     feature_df["fail_ratio"] = feature_df["fail_count"] / (feature_df["total_events"] + 1e-6)
-
-    # NaN 처리
     feature_df = feature_df.fillna(0)
 
-    # Isolation Forest 적용
     model = IsolationForest(contamination=0.2, random_state=42)
     feature_df["anomaly"] = model.fit_predict(feature_df[[
         "total_events",
@@ -153,7 +144,6 @@ def detect_anomalies():
     ]])
 
     return feature_df.to_dict(orient="records")
-
 
 # 실행
 if __name__ == '__main__':

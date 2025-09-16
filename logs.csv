@@ -116,4 +116,11 @@ timestamp,ip,event_type,status
 2025-09-16 10:36:00,192.168.0.97,login_failed,failed
 2025-09-16 10:37:00,192.168.0.98,login_success,success
 2025-09-16 10:38:00,192.168.0.99,login_failed,failed
+2025-09-16 10:38:00,192.168.0.99,login_failed,failed
+2025-09-16 10:38:00,192.168.0.99,login_failed,failed
+2025-09-16 10:38:00,192.168.0.99,login_failed,failed
+2025-09-16 10:38:00,192.168.0.99,login_failed,failed
+2025-09-16 10:38:00,192.168.0.99,login_failed,failed
+2025-09-16 10:38:00,192.168.0.99,login_failed,failed
+2025-09-16 10:38:00,192.168.0.99,login_failed,failed
 2025-09-16 10:39:00,192.168.0.100,admin_access,success
