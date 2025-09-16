@@ -7,22 +7,23 @@ from dotenv import load_dotenv
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 
-
 # .env 파일 로드
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-
 app = Flask(__name__)
 
+# -----------------------------------
+# ✅ SQLite DB 설정 (항상 루트 DB 사용)
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+db_path = os.path.join(BASE_DIR, "database.db")
 
-# SQLite DB 설정
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
-
+# -----------------------------------
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -35,7 +36,7 @@ def send_telegram_alert(message):
 with app.app_context():
     db.create_all()
 
-
+# -----------------------------------
 # 로그 수집 API
 @app.route('/log', methods=['POST'])
 def collect_log():
@@ -56,6 +57,7 @@ def collect_log():
 
     return jsonify({"message": "Log stored successfully!"}), 201
 
+# -----------------------------------
 # 로그 확인 API
 @app.route('/logs', methods=['GET'])
 def get_logs():
@@ -68,7 +70,7 @@ def get_logs():
         "status": log.status
     } for log in logs])
 
-
+# -----------------------------------
 # 대시보드
 @app.route('/dashboard')
 def dashboard():
@@ -79,7 +81,7 @@ def dashboard():
     event_types = [log.event_type for log in logs]
     ip_addresses = [log.ip for log in logs]
 
-    #  시간 단위를 "YYYY-MM-DD HH"로 묶어서 집계 (분 단위 X)
+    # 시간 단위를 "YYYY-MM-DD HH"로 묶어서 집계
     normalized_times = [t[:13] for t in timestamps]
 
     # 이상탐지 결과
@@ -93,14 +95,14 @@ def dashboard():
         anomalies=anomalies
     )
 
-
+# -----------------------------------
 # 이상행위 탐지 API
 @app.route('/anomaly')
 def anomaly_api():
     anomalies = detect_anomalies()
     return jsonify(anomalies)
 
-
+# -----------------------------------
 # 이상탐지 함수
 def detect_anomalies():
     logs = Log.query.all()
@@ -151,6 +153,7 @@ def detect_anomalies():
     ]])
 
     return feature_df.to_dict(orient="records")
+
 
 # 실행
 if __name__ == '__main__':
